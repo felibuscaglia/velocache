@@ -15,6 +15,13 @@ export function handleCommand(cache: LRUCache, input: string): string {
     case "GET":
       if (!key) return "ERROR missing key";
       return cache.get(key) ?? "NULL";
+    
+    case "DELETE":
+      if (!key) return "ERROR missing key";
+      return cache.delete(key) ? "1" : "0";
+    
+    case "STATS":
+      return cache.getStats();
 
     default:
       return `ERROR unknown command: ${command ?? ""}`;

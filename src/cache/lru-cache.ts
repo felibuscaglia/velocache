@@ -5,12 +5,14 @@ class LRUCache {
   private order: DoublyLinkedList;
   private readonly max: number;
   private size: number;
+  private stats: { hits: number; misses: number };
 
   constructor(max = 4) {
     this.cache = new Map<string, ListNode>();
     this.order = new DoublyLinkedList();
     this.max = max;
     this.size = 0;
+    this.stats = { hits: 0, misses: 0 };
   }
 
   set(key: string, value: string) {
@@ -28,16 +30,39 @@ class LRUCache {
   }
 
   get(key: string): string | null {
-    console.log("========== PREV ==========");
-    console.log(this.cache);
     const node = this.cache.get(key);
-    
-    if (!node) return null;
-    
+
+    if (!node) {
+      this.stats.misses++;
+      return null;
+    }
+
     this.order.moveToFront(node);
-    console.log("========== AFTER ==========");
-    console.log(this.cache);
+    this.stats.hits++;
     return node.getValue();
+  }
+
+  delete(key: string): boolean {
+    const node = this.cache.get(key);
+
+    if (!node) return false;
+
+    this.cache.delete(key);
+    this.order.delete(node);
+
+    return true;
+  }
+
+  getStats() {
+    return `
+      +--------+-------+
+      | Metric | Value |
+      +--------+-------+
+      | Items  |   ${this.cache.size}   |
+      | Hits   |   ${this.stats.hits}   |
+      | Misses |   ${this.stats.misses}   |
+      +--------+-------+
+    `;
   }
 }
 

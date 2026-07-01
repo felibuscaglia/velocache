@@ -45,6 +45,24 @@ class DoublyLinkedList {
     return newNode;
   }
 
+  delete(node: ListNode) {
+    if (this.head === node) {
+      this.head = this.head.next;
+    }
+
+    if (this.tail === node) {
+      this.tail = this.tail.prev;
+    }
+
+    if (node.prev) {
+      node.prev.next = node.next;
+    }
+
+    if (node.next) {
+      node.next.prev = node.prev;
+    }
+  }
+
   removeTail() {
     let removedTail: ListNode | null = null;
 
