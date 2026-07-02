@@ -15,7 +15,7 @@ class LRUCache {
     this.stats = { hits: 0, misses: 0 };
   }
 
-  set(key: string, value: string) {
+  set(key: string, value: string, ttl?: number) {
     if (this.size === this.max) {
       const leastUsed = this.order.removeTail();
 
@@ -27,6 +27,12 @@ class LRUCache {
     const node = this.order.add(key, value);
     this.cache.set(key, node);
     this.size++;
+
+    if (ttl !== undefined) {
+      setTimeout(() => {
+        this.delete(key);
+      }, ttl * 1000);
+    }
   }
 
   get(key: string): string | null {

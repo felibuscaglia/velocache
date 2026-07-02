@@ -1,4 +1,5 @@
 import { LRUCache } from "../cache";
+import { parseSet } from "../helpers";
 
 export function handleCommand(cache: LRUCache, input: string): string {
   const [command, key, ...rest] = input.split(" ");
@@ -7,19 +8,21 @@ export function handleCommand(cache: LRUCache, input: string): string {
   switch (command?.toUpperCase()) {
     case "SET":
       if (!key) return "ERROR missing key";
-      if (!value) return "ERROR missing value";
 
-      cache.set(key, value);
+      const parsed = parseSet(rest);
+      if (!parsed.ok) return parsed.error || "UNEXPECTED ERROR";
+
+      cache.set(key, parsed.value || "", parsed.ttl);
       return "OK";
 
     case "GET":
       if (!key) return "ERROR missing key";
       return cache.get(key) ?? "NULL";
-    
+
     case "DELETE":
       if (!key) return "ERROR missing key";
       return cache.delete(key) ? "1" : "0";
-    
+
     case "STATS":
       return cache.getStats();
 
