@@ -6,7 +6,11 @@ VeloCache is a compact study of the ideas that sit underneath production caches 
 
 ## Interactive demo
 
-[`demo/index.html`](demo/index.html) is a self-contained page that runs a faithful in-browser build of the LRU algorithm: type the real wire-protocol commands and watch entries promote to the head, evict from the tail, and expire on their TTL in real time. Open it directly, or serve it via GitHub Pages — see [`demo/README.md`](demo/README.md).
+**▶ [felibuscaglia.github.io/velocache](https://felibuscaglia.github.io/velocache/)**
+
+A self-contained page that runs a faithful in-browser build of the LRU algorithm: type the real wire-protocol commands and watch entries promote to the head, evict from the tail, and expire on their TTL in real time. The source is [`docs/index.html`](docs/index.html) — a single file with no build step or dependencies.
+
+The demo reimplements the cache in browser JavaScript for illustration; the authoritative implementation is the TypeScript server in [`src`](src).
 
 ## Design
 
