@@ -4,6 +4,10 @@ An in-memory, TTL-aware key–value cache with LRU eviction, served over a plain
 
 VeloCache is a compact study of the ideas that sit underneath production caches such as Redis and Memcached: an O(1) least-recently-used eviction policy, per-key expiration, a line-oriented wire protocol, and crash-consistent snapshots to disk. It is written from first principles in TypeScript, with no runtime dependencies, so the moving parts stay legible.
 
+## Interactive demo
+
+[`demo/index.html`](demo/index.html) is a self-contained page that runs a faithful in-browser build of the LRU algorithm: type the real wire-protocol commands and watch entries promote to the head, evict from the tail, and expire on their TTL in real time. Open it directly, or serve it via GitHub Pages — see [`demo/README.md`](demo/README.md).
+
 ## Design
 
 The cache is built around the classic pairing of a hash map and a doubly linked list, which together give amortized O(1) reads, writes, and evictions.

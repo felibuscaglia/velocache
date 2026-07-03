@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="VeloCache — an in-memory, TTL-aware LRU key–value cache served over a raw TCP protocol, written from first principles in ~500 lines of zero-dependency TypeScript. Operate a live in-browser build of the real algorithm.">
+<meta name="author" content="Felipe Buscaglia">
+<meta name="theme-color" content="#131210">
+<meta property="og:type" content="website">
+<meta property="og:title" content="VeloCache — an in-memory LRU cache you can operate">
+<meta property="og:description" content="The machinery under Redis, rebuilt to stay legible. Type the real wire-protocol commands and watch the cache promote, evict, and expire in real time.">
+<meta property="og:url" content="https://felibuscaglia.github.io/velocache/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="VeloCache — an in-memory LRU cache you can operate">
+<meta name="twitter:description" content="A TTL-aware LRU cache over TCP, in ~500 lines of zero-dependency TypeScript. Operate the real algorithm in your browser.">
+<style>
+  /* minimal reset (the page defines its own box-sizing + tokens below) */
+  html { -webkit-text-size-adjust: 100%; }
+  img, svg { max-width: 100%; }
+</style>
+<title>VeloCache — an in-memory LRU cache you can operate</title>
+<style>
+  :root {
+    /* light theme (default) — warm paper, amber-biased neutrals */
+    --bg: #f7f4ee;
+    --bg-2: #fffdf8;
+    --bg-3: #efe9dd;
+    --border: #e2dac9;
+    --border-strong: #d3c9b3;
+    --text: #211d16;
+    --text-dim: #5f584b;
+    --text-faint: #8a8271;
+    --accent: #b46a0a;
+    --accent-fill: #f5a623;
+    --accent-soft: #fbeccd;
+    --hot: #d98400;
+    --cool: #2f8a9b;
+    --dead: #a49c8c;
+    --good: #2f8f5b;
+    --bad: #cc4b46;
+    --shadow: 0 1px 2px rgba(40,32,16,.06), 0 8px 30px rgba(40,32,16,.07);
+    --shadow-lg: 0 2px 6px rgba(40,32,16,.08), 0 24px 60px rgba(40,32,16,.12);
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131210;
+      --bg-2: #1b1915;
+      --bg-3: #23201a;
+      --border: #302c23;
+      --border-strong: #423c30;
+      --text: #f1ece2;
+      --text-dim: #a8a091;
+      --text-faint: #736b5c;
+      --accent: #ffc266;
+      --accent-fill: #f5a623;
+      --accent-soft: #2a2318;
+      --hot: #ffb340;
+      --cool: #5ec8d8;
+      --dead: #6b6456;
+      --good: #6fcf97;
+      --bad: #ef7d78;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 34px rgba(0,0,0,.4);
+      --shadow-lg: 0 2px 8px rgba(0,0,0,.4), 0 30px 70px rgba(0,0,0,.55);
+    }
+  }
+  /* viewer toggle overrides — must win in both directions */
+  :root[data-theme="light"] {
+    --bg: #f7f4ee; --bg-2: #fffdf8; --bg-3: #efe9dd; --border: #e2dac9;
+    --border-strong: #d3c9b3; --text: #211d16; --text-dim: #5f584b; --text-faint: #8a8271;
+    --accent: #b46a0a; --accent-fill: #f5a623; --accent-soft: #fbeccd;
+    --hot: #d98400; --cool: #2f8a9b; --dead: #a49c8c; --good: #2f8f5b; --bad: #cc4b46;
+    --shadow: 0 1px 2px rgba(40,32,16,.06), 0 8px 30px rgba(40,32,16,.07);
+    --shadow-lg: 0 2px 6px rgba(40,32,16,.08), 0 24px 60px rgba(40,32,16,.12);
+  }
+  :root[data-theme="dark"] {
+    --bg: #131210; --bg-2: #1b1915; --bg-3: #23201a; --border: #302c23;
+    --border-strong: #423c30; --text: #f1ece2; --text-dim: #a8a091; --text-faint: #736b5c;
+    --accent: #ffc266; --accent-fill: #f5a623; --accent-soft: #2a2318;
+    --hot: #ffb340; --cool: #5ec8d8; --dead: #6b6456; --good: #6fcf97; --bad: #ef7d78;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 34px rgba(0,0,0,.4);
+    --shadow-lg: 0 2px 8px rgba(0,0,0,.4), 0 30px 70px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  section { padding: 72px 0; }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 24px; max-width: 1120px; margin: 0 auto;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; font-family: var(--mono); font-weight: 600; letter-spacing: -.01em; }
+  .brand .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, var(--hot), var(--accent-fill) 55%, #a85f00);
+    box-shadow: 0 0 0 4px var(--accent-soft), 0 0 18px -2px var(--accent-fill);
+  }
+  .topbar-right { display: flex; align-items: center; gap: 8px; }
+  .ghost-btn {
+    font-family: var(--mono); font-size: .8rem; color: var(--text-dim);
+    background: transparent; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+    text-decoration: none; transition: border-color .15s, color .15s, background .15s;
+  }
+  .ghost-btn:hover { color: var(--text); border-color: var(--border-strong); background: var(--bg-2); }
+  .ghost-btn svg { width: 15px; height: 15px; }
+  .icon-btn {
+    width: 36px; height: 36px; padding: 0; justify-content: center;
+  }
+
+  /* ---------- hero ---------- */
+  .hero { padding-top: 34px; padding-bottom: 40px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: .74rem; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--text-faint); margin: 0 0 20px;
+  }
+  .eyebrow b { color: var(--accent); font-weight: 600; }
+  h1 {
+    font-size: clamp(2.7rem, 7vw, 5rem); line-height: .98; letter-spacing: -.035em;
+    font-weight: 800; margin: 0 0 22px; text-wrap: balance;
+  }
+  h1 .grad {
+    background: linear-gradient(96deg, var(--hot), var(--accent-fill) 45%, var(--cool));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede {
+    font-size: clamp(1.08rem, 1.9vw, 1.32rem); color: var(--text-dim); max-width: 60ch;
+    margin: 0 0 8px; line-height: 1.5;
+  }
+  .lede b { color: var(--text); font-weight: 600; }
+
+  /* ---------- console (hero centerpiece) ---------- */
+  .console {
+    margin-top: 40px; border: 1px solid var(--border); border-radius: 16px;
+    background: var(--bg-2); box-shadow: var(--shadow-lg); overflow: hidden;
+  }
+  .console-head {
+    display: flex; align-items: center; gap: 14px; padding: 13px 18px;
+    border-bottom: 1px solid var(--border); background: var(--bg-3);
+  }
+  .lights { display: flex; gap: 7px; }
+  .lights i { width: 11px; height: 11px; border-radius: 50%; background: var(--border-strong); display: block; }
+  .console-title { font-family: var(--mono); font-size: .82rem; color: var(--text-dim); }
+  .cap-chip {
+    margin-left: auto; font-family: var(--mono); font-size: .78rem; color: var(--text-dim);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .cap-chip b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .console-grid { display: grid; grid-template-columns: 1.05fr .95fr; }
+  @media (max-width: 860px) { .console-grid { grid-template-columns: 1fr; } }
+
+  /* left: live cache visualization */
+  .viz { padding: 22px 22px 26px; border-right: 1px solid var(--border); min-height: 340px; display: flex; flex-direction: column; }
+  @media (max-width: 860px) { .viz { border-right: none; border-bottom: 1px solid var(--border); } }
+  .viz-labels { display: flex; justify-content: space-between; font-family: var(--mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 14px; }
+  .nodes { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .node {
+    position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center;
+    gap: 8px 12px; padding: 12px 14px 12px 18px; border-radius: 11px;
+    background: var(--bg-3); border: 1px solid var(--border);
+    box-shadow: inset 3px 0 0 0 var(--heat, var(--hot)), var(--shadow);
+    will-change: transform;
+  }
+  .node.enter { animation: pop .34s cubic-bezier(.2,.9,.3,1.2); }
+  .node.leaving { animation: evict .42s cubic-bezier(.5,0,.75,0) forwards; pointer-events: none; }
+  .node.dead { opacity: .5; }
+  .node.dead .n-key { text-decoration: line-through; color: var(--dead) !important; }
+  .n-key { font-family: var(--mono); font-weight: 600; font-size: 1rem; color: var(--heat, var(--hot)); }
+  .n-val { font-family: var(--mono); font-size: .82rem; color: var(--text-dim); grid-column: 1; margin-top: -2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
+  .n-badge {
+    grid-row: 1 / span 2; align-self: center; font-family: var(--mono); font-size: .66rem;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint);
+    display: flex; flex-direction: column; align-items: flex-end; gap: 5px;
+  }
+  .n-pos { color: var(--heat, var(--hot)); font-weight: 600; }
+  .ttl-bar { width: 62px; height: 4px; border-radius: 3px; background: var(--border-strong); overflow: hidden; }
+  .ttl-bar > i { display: block; height: 100%; background: var(--cool); border-radius: 3px; transform-origin: left; }
+  .viz-empty { margin: auto; text-align: center; color: var(--text-faint); font-family: var(--mono); font-size: .84rem; line-height: 1.7; }
+
+  /* right: terminal */
+  .term { display: flex; flex-direction: column; background: var(--bg-2); min-height: 340px; }
+  .term-out {
+    flex: 1; padding: 18px 18px 8px; font-family: var(--mono); font-size: .84rem; line-height: 1.6;
+    overflow-y: auto; max-height: 300px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .ln { white-space: pre-wrap; word-break: break-word; }
+  .ln .cmd { color: var(--text); }
+  .ln .prmpt { color: var(--accent); }
+  .ln.res { color: var(--text-dim); }
+  .ln.ok { color: var(--good); }
+  .ln.err { color: var(--bad); }
+  .ln.sys { color: var(--text-faint); }
+  .ln .kv { color: var(--hot); }
+  .term-table { color: var(--text-dim); }
+  .term-in { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); font-family: var(--mono); }
+  .term-in .prmpt { color: var(--accent); font-size: .9rem; }
+  .term-in input {
+    flex: 1; background: transparent; border: none; outline: none; color: var(--text);
+    font-family: var(--mono); font-size: .88rem; caret-color: var(--accent-fill);
+  }
+  .term-in input::placeholder { color: var(--text-faint); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 18px 16px; }
+  .chip {
+    font-family: var(--mono); font-size: .74rem; color: var(--text-dim); cursor: pointer;
+    background: var(--bg-3); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px;
+    transition: border-color .15s, color .15s;
+  }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+  .chip.run { color: var(--accent); border-color: var(--accent); }
+
+  .stats-strip {
+    display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--border);
+    background: var(--bg-3);
+  }
+  .stat { padding: 13px 16px; text-align: center; border-right: 1px solid var(--border); }
+  .stat:last-child { border-right: none; }
+  .stat .v { font-family: var(--mono); font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .k { font-family: var(--mono); font-size: .64rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); margin-top: 2px; }
+  .stat .v.hit { color: var(--good); }
+  .stat .v.miss { color: var(--bad); }
+
+  /* legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 22px; font-family: var(--mono); font-size: .76rem; color: var(--text-dim); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .legend i { width: 22px; height: 4px; border-radius: 3px; display: block; }
+
+  /* ---------- generic section headings ---------- */
+  .sec-eyebrow { font-family: var(--mono); font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+  h2 { font-size: clamp(1.7rem, 3.4vw, 2.4rem); letter-spacing: -.025em; font-weight: 800; margin: 0 0 18px; line-height: 1.08; text-wrap: balance; }
+  .sec-lede { font-size: 1.1rem; color: var(--text-dim); max-width: 64ch; margin: 0 0 12px; }
+
+  /* ---------- architecture diagram ---------- */
+  .arch { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; margin-top: 40px; }
+  @media (max-width: 780px) { .arch { grid-template-columns: 1fr; } }
+  .arch-panel { border: 1px solid var(--border); border-radius: 14px; background: var(--bg-2); padding: 26px; box-shadow: var(--shadow); }
+  .diagram { font-family: var(--mono); font-size: .8rem; }
+  .d-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .d-cell {
+    border: 1px dashed var(--border-strong); border-radius: 8px; padding: 8px 11px; color: var(--text-dim);
+    background: var(--bg-3); white-space: nowrap;
+  }
+  .d-cell.key { color: var(--accent); border-style: solid; border-color: var(--accent); }
+  .d-arrow { color: var(--text-faint); }
+  .d-list { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+  .d-node { border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 12px; font-family: var(--mono); font-size: .78rem; background: var(--bg-3); }
+  .d-node.mru { color: var(--hot); border-color: var(--hot); }
+  .d-node.lru { color: var(--cool); border-color: var(--cool); }
+  .arch-copy p { color: var(--text-dim); margin: 0 0 16px; }
+  .arch-copy p b { color: var(--text); }
+  .big-o { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+  .big-o span { font-family: var(--mono); font-size: .82rem; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--border); }
+
+  /* ---------- decision cards ---------- */
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 40px; }
+  @media (max-width: 780px) { .cards { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--border); border-radius: 14px; background: var(--bg-2); padding: 24px; box-shadow: var(--shadow); }
+  .card h3 { font-family: var(--mono); font-size: .95rem; font-weight: 600; margin: 0 0 4px; letter-spacing: -.01em; }
+  .card .tag { font-family: var(--mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 12px; }
+  .card p { color: var(--text-dim); margin: 0; font-size: .95rem; }
+  .card p b { color: var(--text); font-weight: 600; }
+  .card code { font-family: var(--mono); font-size: .85em; color: var(--accent); background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; }
+
+  /* ---------- protocol table ---------- */
+  .table-scroll { overflow-x: auto; margin-top: 34px; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 620px; }
+  thead th { text-align: left; font-family: var(--mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); padding: 14px 18px; background: var(--bg-3); border-bottom: 1px solid var(--border); }
+  tbody td { padding: 14px 18px; border-bottom: 1px solid var(--border); color: var(--text-dim); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr { background: var(--bg-2); }
+  td .c { font-family: var(--mono); color: var(--accent); font-weight: 600; }
+  td code { font-family: var(--mono); font-size: .85em; color: var(--text); background: var(--bg-3); padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+
+  /* ---------- specs strip ---------- */
+  .specs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 8px; }
+  @media (max-width: 680px) { .specs { grid-template-columns: repeat(2, 1fr); } }
+  .spec { text-align: center; padding: 26px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-2); }
+  .spec .v { font-size: 1.7rem; font-weight: 800; letter-spacing: -.02em; font-family: var(--mono); }
+  .spec .v .u { font-size: .9rem; color: var(--text-faint); font-weight: 500; }
+  .spec .k { font-size: .78rem; color: var(--text-dim); margin-top: 6px; }
+
+  /* ---------- footer / CTA ---------- */
+  .cta { border-top: 1px solid var(--border); }
+  .cta-box { border: 1px solid var(--border); border-radius: 18px; background: var(--bg-2); padding: 48px 40px; text-align: center; box-shadow: var(--shadow-lg); background-image: radial-gradient(60% 120% at 50% 0%, var(--accent-soft), transparent 70%); }
+  .cta-box h2 { margin-bottom: 12px; }
+  .cta-box p { color: var(--text-dim); max-width: 52ch; margin: 0 auto 26px; }
+  .btn-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px; font-family: var(--mono); font-size: .9rem; font-weight: 600;
+    padding: 12px 20px; border-radius: 10px; text-decoration: none; cursor: pointer; border: 1px solid transparent;
+    transition: transform .12s, box-shadow .15s, background .15s;
+  }
+  .btn.primary { background: var(--accent-fill); color: #1a1206; box-shadow: 0 6px 20px -6px var(--accent-fill); }
+  .btn.primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -6px var(--accent-fill); }
+  .btn.secondary { background: transparent; color: var(--text); border-color: var(--border-strong); }
+  .btn.secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn svg { width: 17px; height: 17px; }
+  footer { text-align: center; padding: 40px 0 60px; color: var(--text-faint); font-family: var(--mono); font-size: .82rem; }
+  footer a { color: var(--text-dim); text-decoration: none; border-bottom: 1px solid var(--border-strong); }
+  footer a:hover { color: var(--accent); }
+
+  :focus-visible { outline: 2px solid var(--accent-fill); outline-offset: 2px; border-radius: 6px; }
+
+  @keyframes pop { from { opacity: 0; transform: translateX(-14px) scale(.96); } to { opacity: 1; transform: none; } }
+  @keyframes evict { to { opacity: 0; transform: translateX(40px) scale(.9); } }
+  @media (prefers-reduced-motion: reduce) {
+    .node.enter, .node.leaving { animation: none; }
+    .btn.primary:hover { transform: none; }
+    * { scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="dot"></span> VeloCache</div>
+  <div class="topbar-right">
+    <a class="ghost-btn" href="https://github.com/felibuscaglia/velocache" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Source
+    </a>
+    <button class="ghost-btn icon-btn" id="theme-toggle" aria-label="Toggle color theme" title="Toggle theme">
+      <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M18.4 5.6l1.4-1.4M4.2 19.8l1.4-1.4"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="wrap hero">
+  <p class="eyebrow">In-memory cache · TypeScript · <b>Zero dependencies</b></p>
+  <h1>The machinery under Redis,<br><span class="grad">rebuilt to stay legible.</span></h1>
+  <p class="lede"><b>VeloCache</b> is a TTL-aware, LRU key–value cache served over a raw TCP protocol — an O(1) eviction policy, per-key expiration, and crash-consistent snapshots, written from first principles in ~500 lines of strict TypeScript.</p>
+  <p class="lede" style="color:var(--text-faint);font-family:var(--mono);font-size:.9rem;margin-top:14px;">↓ This is the real algorithm. Type a command and watch the cache think.</p>
+
+  <div class="console">
+    <div class="console-head">
+      <span class="lights"><i></i><i></i><i></i></span>
+      <span class="console-title">velocache · localhost:8080</span>
+      <span class="cap-chip">capacity <b><span id="cap-used">0</span>&nbsp;/&nbsp;6</b></span>
+    </div>
+    <div class="console-grid">
+      <div class="viz">
+        <div class="viz-labels"><span>◄ most recently used</span><span>least recently used ►</span></div>
+        <div class="nodes" id="nodes"></div>
+      </div>
+      <div class="term">
+        <div class="term-out" id="out"></div>
+        <div class="term-in">
+          <span class="prmpt">&gt;</span>
+          <input id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="SET session-token abc123 TTL 8" aria-label="Cache command input">
+        </div>
+        <div class="chips">
+          <button class="chip run" data-run="demo">▶ Run demo</button>
+          <button class="chip" data-cmd="GET user:42">GET user:42</button>
+          <button class="chip" data-cmd="SET flag on TTL 5">SET … TTL 5</button>
+          <button class="chip" data-cmd="STATS">STATS</button>
+          <button class="chip" data-cmd="DELETE user:42">DELETE</button>
+        </div>
+      </div>
+    </div>
+    <div class="stats-strip">
+      <div class="stat"><div class="v" id="s-items">0</div><div class="k">Items</div></div>
+      <div class="stat"><div class="v hit" id="s-hits">0</div><div class="k">Hits</div></div>
+      <div class="stat"><div class="v miss" id="s-miss">0</div><div class="k">Misses</div></div>
+      <div class="stat"><div class="v" id="s-rate">—</div><div class="k">Hit rate</div></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--hot)"></i> hot — recently touched</span>
+    <span><i style="background:var(--cool)"></i> cold — next to be evicted</span>
+    <span><i style="background:var(--dead)"></i> expired — reclaimed lazily</span>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <p class="sec-eyebrow">O(1), by construction</p>
+    <h2>A hash map and a linked list, doing one job each.</h2>
+    <p class="sec-lede">The map answers <i>“where is this key?”</i> in constant time. The list answers <i>“what have we touched least recently?”</i> — also in constant time. Neither ever walks the collection.</p>
+    <div class="arch">
+      <div class="arch-panel">
+        <div class="diagram">
+          <div class="d-row"><span class="d-cell key">"user:42"</span><span class="d-arrow">→</span><span class="d-cell">ListNode&nbsp;#3</span></div>
+          <div class="d-row"><span class="d-cell key">"flag"</span><span class="d-arrow">→</span><span class="d-cell">ListNode&nbsp;#1</span></div>
+          <div class="d-row"><span class="d-cell key">"cart:9"</span><span class="d-arrow">→</span><span class="d-cell">ListNode&nbsp;#2</span></div>
+          <div style="font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);margin:22px 0 8px;">recency order — a circular doubly-linked list</div>
+          <div class="d-list">
+            <span class="d-node mru">#1 head</span><span class="d-arrow">⇄</span>
+            <span class="d-node">#3</span><span class="d-arrow">⇄</span>
+            <span class="d-node lru">#2 tail</span>
+          </div>
+        </div>
+      </div>
+      <div class="arch-copy">
+        <p><b>Lookup</b> goes through the map: key → node, in O(1).</p>
+        <p><b>Touch</b> a node on <code>GET</code> and it's spliced out and re-linked at the head — a handful of pointer rewires, independent of how many entries the cache holds.</p>
+        <p><b>Evict</b> when full: the tail is the least recently used entry by definition, so removing it is the same O(1) splice. Expired nodes are reclaimed first.</p>
+        <div class="big-o"><span>GET · O(1)</span><span>SET · O(1)</span><span>EVICT · O(1)</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:0;">
+  <div class="wrap">
+    <p class="sec-eyebrow">Decisions worth defending</p>
+    <h2>The interesting choices aren't the data structures.</h2>
+    <p class="sec-lede">They're the edge cases — the ones that separate a toy from something you'd trust with a process's memory.</p>
+    <div class="cards">
+      <div class="card">
+        <p class="tag">Recency</p>
+        <h3>A <em>circular</em> doubly-linked list</h3>
+        <p>Closing the ring makes the head and tail neighbours, so promoting an entry and evicting the least-used one are <b>the same splice logic</b> — no special-casing the ends, and no head/tail sentinel bookkeeping.</p>
+      </div>
+      <div class="card">
+        <p class="tag">Expiration</p>
+        <h3>Lazy TTL, with a bounded sweep</h3>
+        <p>A key is gone the instant its deadline passes and is dropped on the next access — no background timer per key. A <b>capacity-triggered sweep</b> reclaims expired nodes before evicting a live one, so dead entries can't crowd out good ones.</p>
+      </div>
+      <div class="card">
+        <p class="tag">Durability</p>
+        <h3>Snapshots a reader can't tear</h3>
+        <p><code>SAVE</code> serializes live entries to a temp file, <code>fsync</code>s it, then <b>atomically renames</b> it into place — so a concurrent reader never observes a half-written file. TTLs are stored as absolute deadlines, so expiry survives a restart.</p>
+      </div>
+      <div class="card">
+        <p class="tag">Lifecycle</p>
+        <h3>Graceful shutdown</h3>
+        <p><code>SIGINT</code>/<code>SIGTERM</code> stops accepting connections and flushes a final snapshot before exit. A guard ensures a second <b>Ctrl-C won't kick off a concurrent save</b> and corrupt the write.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:0;">
+  <div class="wrap">
+    <p class="sec-eyebrow">The wire protocol</p>
+    <h2>Newline-terminated, human-typable.</h2>
+    <p class="sec-lede">Commands are case-insensitive; a value is the remainder of the line, so it may contain spaces. Everything in the console above speaks exactly this protocol.</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Command</th><th>Syntax</th><th>Does</th><th>Returns</th></tr></thead>
+        <tbody>
+          <tr><td><span class="c">SET</span></td><td><code>SET &lt;key&gt; &lt;value&gt; [TTL &lt;secs&gt;]</code></td><td>Store a value, optionally with a time-to-live.</td><td><code>OK</code></td></tr>
+          <tr><td><span class="c">GET</span></td><td><code>GET &lt;key&gt;</code></td><td>Read a value and refresh its recency.</td><td>value or <code>NULL</code></td></tr>
+          <tr><td><span class="c">DELETE</span></td><td><code>DELETE &lt;key&gt;</code></td><td>Remove a key.</td><td><code>1</code> or <code>0</code></td></tr>
+          <tr><td><span class="c">SAVE</span></td><td><code>SAVE</code></td><td>Persist a crash-consistent snapshot to disk.</td><td><code>OK &lt;path&gt;</code></td></tr>
+          <tr><td><span class="c">STATS</span></td><td><code>STATS</code></td><td>Report items, hits, misses, and uptime.</td><td>table</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:0;">
+  <div class="wrap">
+    <div class="specs">
+      <div class="spec"><div class="v">~500</div><div class="k">lines of strict TypeScript</div></div>
+      <div class="spec"><div class="v">0</div><div class="k">runtime dependencies</div></div>
+      <div class="spec"><div class="v">O(1)</div><div class="k">get · set · evict</div></div>
+      <div class="spec"><div class="v">8</div><div class="k">focused modules</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <div class="cta-box">
+      <h2>Read the ~500 lines.</h2>
+      <p>No framework, no magic — a hash map, a linked list, a socket, and a file. It's meant to be read in one sitting.</p>
+      <div class="btn-row">
+        <a class="btn primary" href="https://github.com/felibuscaglia/velocache" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          View source on GitHub
+        </a>
+        <button class="btn secondary" data-run="demo2">Replay the demo ↑</button>
+      </div>
+    </div>
+    <footer>
+      Built by <a href="https://github.com/felibuscaglia" target="_blank" rel="noopener">Felipe Buscaglia</a>
+      &nbsp;·&nbsp; In-memory LRU cache over TCP &nbsp;·&nbsp; TypeScript, zero deps
+    </footer>
+  </div>
+</section>
+
+<script>
+(function () {
+  "use strict";
+  var CAP = 6;
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ----- theme toggle -----
+  var toggle = document.getElementById("theme-toggle");
+  toggle.addEventListener("click", function () {
+    var root = document.documentElement;
+    var cur = root.getAttribute("data-theme");
+    if (!cur) {
+      var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      cur = prefersDark ? "dark" : "light";
+    }
+    root.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+  });
+
+  // ----- the cache (faithful to the TypeScript source) -----
+  // order[0] = head = MRU ; order[last] = tail = LRU
+  var map = Object.create(null); // key -> entry
+  var order = [];                // array of keys, MRU first
+  var hits = 0, misses = 0;
+
+  function now() { return Date.now(); }
+  function isExpired(e) { return e.expiresAt !== undefined && e.expiresAt <= now(); }
+
+  function toFront(key) {
+    var i = order.indexOf(key);
+    if (i > 0) { order.splice(i, 1); order.unshift(key); }
+  }
+
+  function set(key, value, ttl) {
+    var e = map[key];
+    if (e) { // existing: update in place, no recency bump — matches source
+      e.value = value;
+      if (ttl !== undefined) e.expiresAt = now() + ttl * 1000;
+      return { evicted: null };
+    }
+    var evicted = null;
+    if (order.length >= CAP) {
+      // reclaim expired first
+      var live = [];
+      for (var j = 0; j < order.length; j++) {
+        var k = order[j];
+        if (isExpired(map[k])) { delete map[k]; } else { live.push(k); }
+      }
+      order = live;
+    }
+    if (order.length >= CAP) {
+      var tail = order.pop();
+      if (tail !== undefined) { delete map[tail]; evicted = tail; }
+    }
+    map[key] = { key: key, value: value, expiresAt: ttl !== undefined ? now() + ttl * 1000 : undefined, born: now() };
+    order.unshift(key);
+    return { evicted: evicted };
+  }
+
+  function get(key) {
+    var e = map[key];
+    if (!e || isExpired(e)) {
+      if (e && isExpired(e)) { delete map[key]; var i = order.indexOf(key); if (i >= 0) order.splice(i, 1); }
+      misses++;
+      return null;
+    }
+    toFront(key);
+    hits++;
+    return e.value;
+  }
+
+  function del(key) {
+    if (!map[key]) return false;
+    delete map[key];
+    var i = order.indexOf(key); if (i >= 0) order.splice(i, 1);
+    return true;
+  }
+
+  // ----- rendering with FLIP -----
+  var nodesEl = document.getElementById("nodes");
+  var lerp = function (a, b, t) { return Math.round(a + (b - a) * t); };
+  function heat(ratio) { // 0 = hottest, 1 = coldest
+    var hot = [255, 179, 64], cool = [94, 200, 216];
+    return "rgb(" + lerp(hot[0], cool[0], ratio) + "," + lerp(hot[1], cool[1], ratio) + "," + lerp(hot[2], cool[2], ratio) + ")";
+  }
+
+  var leaving = [];
+  function render(justEvicted) {
+    // FLIP: record first positions
+    var first = {};
+    Array.prototype.forEach.call(nodesEl.querySelectorAll(".node"), function (el) {
+      if (el.dataset.key) first[el.dataset.key] = el.getBoundingClientRect().top;
+    });
+
+    if (order.length === 0 && leaving.length === 0) {
+      nodesEl.innerHTML = '<div class="viz-empty">the cache is empty —<br>SET a key to begin</div>';
+    } else {
+      var empty = nodesEl.querySelector(".viz-empty");
+      if (empty) empty.remove();
+
+      // remove DOM nodes that are gone (except ones mid-eviction)
+      Array.prototype.slice.call(nodesEl.querySelectorAll(".node")).forEach(function (el) {
+        var k = el.dataset.key;
+        if (order.indexOf(k) === -1 && leaving.indexOf(k) === -1) el.remove();
+      });
+
+      order.forEach(function (key, idx) {
+        var e = map[key];
+        var el = nodesEl.querySelector('.node[data-key="' + cssEsc(key) + '"]');
+        var fresh = false;
+        if (!el) {
+          el = document.createElement("div");
+          el.className = "node";
+          el.dataset.key = key;
+          el.innerHTML = '<span class="n-key"></span><span class="n-val"></span><span class="n-badge"><span class="n-pos"></span><span class="n-ttl"></span></span>';
+          fresh = true;
+        }
+        var ratio = order.length > 1 ? idx / (order.length - 1) : 0;
+        var c = heat(ratio);
+        el.style.setProperty("--heat", c);
+        el.querySelector(".n-key").textContent = key;
+        el.querySelector(".n-val").textContent = e.value;
+        el.querySelector(".n-pos").textContent = idx === 0 ? "MRU" : (idx === order.length - 1 ? "LRU" : "#" + (idx + 1));
+        var ttlEl = el.querySelector(".n-ttl");
+        if (e.expiresAt !== undefined) {
+          ttlEl.innerHTML = '<span class="ttl-bar"><i></i></span>';
+        } else {
+          ttlEl.textContent = "";
+        }
+        el.classList.toggle("dead", isExpired(e));
+        nodesEl.appendChild(el); // reorder to correct position
+        if (fresh && !reduce) { el.classList.add("enter"); setTimeout((function (n) { return function () { n.classList.remove("enter"); }; })(el), 360); }
+      });
+      // keep evicting nodes pinned to the bottom so they fly off from the tail
+      leaving.forEach(function (k) {
+        var el = nodesEl.querySelector('.node[data-key="' + cssEsc(k) + '"]');
+        if (el) nodesEl.appendChild(el);
+      });
+    }
+
+    // FLIP: invert + play
+    if (!reduce) {
+      Array.prototype.forEach.call(nodesEl.querySelectorAll(".node"), function (el) {
+        var k = el.dataset.key;
+        if (first[k] === undefined || leaving.indexOf(k) >= 0) return;
+        var last = el.getBoundingClientRect().top;
+        var dy = first[k] - last;
+        if (dy) {
+          el.style.transition = "none";
+          el.style.transform = "translateY(" + dy + "px)";
+          requestAnimationFrame(function () {
+            el.style.transition = "transform .34s cubic-bezier(.2,.8,.2,1)";
+            el.style.transform = "";
+          });
+        }
+      });
+    }
+    syncStats();
+  }
+
+  function cssEsc(s) { return String(s).replace(/["\\]/g, "\\$&"); }
+
+  function evictNode(key, done) {
+    var el = nodesEl.querySelector('.node[data-key="' + cssEsc(key) + '"]');
+    if (!el || reduce) { if (el) el.remove(); done(); return; }
+    leaving.push(key);
+    el.classList.add("leaving");
+    setTimeout(function () {
+      el.remove();
+      leaving.splice(leaving.indexOf(key), 1);
+      done();
+    }, 420);
+  }
+
+  function syncStats() {
+    document.getElementById("cap-used").textContent = order.length;
+    document.getElementById("s-items").textContent = order.length;
+    document.getElementById("s-hits").textContent = hits;
+    document.getElementById("s-miss").textContent = misses;
+    var total = hits + misses;
+    document.getElementById("s-rate").textContent = total ? Math.round((hits / total) * 100) + "%" : "—";
+  }
+
+  // ----- terminal -----
+  var out = document.getElementById("out");
+  function print(html, cls) {
+    var d = document.createElement("div");
+    d.className = "ln" + (cls ? " " + cls : "");
+    d.innerHTML = html;
+    out.appendChild(d);
+    out.scrollTop = out.scrollHeight;
+  }
+  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+
+  function exec(raw) {
+    var input = raw.trim();
+    if (!input) return;
+    print('<span class="prmpt">&gt;</span> <span class="cmd">' + esc(input) + "</span>");
+    var parts = input.split(/\s+/);
+    var cmd = parts[0].toUpperCase();
+
+    if (cmd === "SET") {
+      var key = parts[1];
+      if (!key) { print("ERROR missing key", "err"); return; }
+      var ttl, rest = parts.slice(2);
+      if (rest.length >= 2 && rest[rest.length - 2].toUpperCase() === "TTL") {
+        var n = parseInt(rest[rest.length - 1], 10);
+        if (!(n > 0)) { print("ERROR invalid TTL", "err"); return; }
+        ttl = n; rest = rest.slice(0, rest.length - 2);
+      }
+      var value = rest.join(" ");
+      if (!value) { print("ERROR missing value", "err"); return; }
+      var r = set(key, value, ttl);
+      if (r.evicted) { evictNode(r.evicted, function () { render(); }); print('<span class="sys">↳ evicted "' + esc(r.evicted) + '" (least recently used)</span>', "sys"); }
+      render();
+      print("OK" + (ttl ? " · expires in " + ttl + "s" : ""), "ok");
+    } else if (cmd === "GET") {
+      if (!parts[1]) { print("ERROR missing key", "err"); return; }
+      var v = get(parts[1]);
+      render();
+      if (v === null) print("NULL", "err"); else print('<span class="kv">' + esc(v) + "</span>", "res");
+    } else if (cmd === "DELETE" || cmd === "DEL") {
+      if (!parts[1]) { print("ERROR missing key", "err"); return; }
+      var ok = del(parts[1]);
+      render();
+      print(ok ? "1" : "0", ok ? "ok" : "res");
+    } else if (cmd === "STATS") {
+      var total = hits + misses;
+      var rate = total ? Math.round((hits / total) * 100) + "%" : "—";
+      print(
+        '<span class="term-table">+---------+---------+\n' +
+        "| Items   | " + pad(order.length) + " |\n" +
+        "| Hits    | " + pad(hits) + " |\n" +
+        "| Misses  | " + pad(misses) + " |\n" +
+        "| HitRate | " + pad(rate) + " |\n" +
+        "+---------+---------+</span>", "res");
+    } else if (cmd === "SAVE") {
+      print('OK /tmp/velocache/dump.json <span class="sys">(snapshot simulated in-browser)</span>', "ok");
+    } else if (cmd === "CLEAR") {
+      map = Object.create(null); order = []; hits = 0; misses = 0; render();
+      print("cleared", "sys");
+    } else if (cmd === "HELP") {
+      print("SET · GET · DELETE · STATS · SAVE · CLEAR", "sys");
+    } else {
+      print("ERROR unknown command: " + esc(parts[0]), "err");
+    }
+  }
+  function pad(v) { v = String(v); return (v + "       ").slice(0, 7); }
+
+  // ----- input wiring -----
+  var input = document.getElementById("cmd");
+  input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { exec(input.value); input.value = ""; }
+  });
+  document.querySelectorAll(".chip[data-cmd]").forEach(function (b) {
+    b.addEventListener("click", function () { input.value = b.dataset.cmd; input.focus(); exec(b.dataset.cmd); input.value = ""; });
+  });
+
+  // ----- scripted demo -----
+  var demoSeq = [
+    ["SET user:42 Ada Lovelace", 650],
+    ["SET cart:9 3 items", 650],
+    ["SET flag on TTL 5", 700],
+    ["GET user:42", 750],
+    ["SET theme dark", 650],
+    ["SET locale en-GB", 650],
+    ["SET region eu-west", 800],
+    ["SET plan pro", 950],
+    ["GET missing-key", 850],
+    ["STATS", 600]
+  ];
+  var running = false;
+  function runDemo() {
+    if (running) return; running = true;
+    map = Object.create(null); order = []; hits = 0; misses = 0;
+    out.innerHTML = ""; render();
+    print("Welcome to the VeloCache server", "sys");
+    var i = 0;
+    (function step() {
+      if (i >= demoSeq.length) { running = false; return; }
+      var item = demoSeq[i++];
+      exec(item[0]);
+      setTimeout(step, reduce ? 60 : item[1]);
+    })();
+  }
+  document.querySelectorAll('[data-run]').forEach(function (b) {
+    b.addEventListener("click", function () {
+      running = false; runDemo();
+      if (b.dataset.run === "demo2") document.querySelector(".console").scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+    });
+  });
+
+  // ----- live TTL bars + lazy expiry visual -----
+  setInterval(function () {
+    var changed = false;
+    Array.prototype.forEach.call(nodesEl.querySelectorAll(".node"), function (el) {
+      var e = map[el.dataset.key];
+      if (!e || e.expiresAt === undefined) return;
+      var bar = el.querySelector(".ttl-bar > i");
+      var span = e.expiresAt - e.born;
+      var left = Math.max(0, e.expiresAt - now());
+      var frac = span > 0 ? left / span : 0;
+      if (bar) { bar.style.width = (frac * 100) + "%"; bar.style.background = frac < 0.34 ? "var(--bad)" : "var(--cool)"; }
+      var dead = isExpired(e);
+      if (dead !== el.classList.contains("dead")) { el.classList.toggle("dead", dead); changed = true; }
+    });
+    if (changed) syncStats();
+  }, 200);
+
+  // ----- boot -----
+  render();
+  if (!reduce) { setTimeout(runDemo, 500); }
+  else { print("Welcome to the VeloCache server", "sys"); }
+})();
+</script>
+</body>
+</html>
