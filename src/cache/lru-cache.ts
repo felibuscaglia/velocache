@@ -10,7 +10,7 @@ class LRUCache {
   private size: number;
   private stats: { hits: number; misses: number };
 
-  constructor(max = 4) {
+  constructor(max = 100) {
     this.cache = new Map<string, ListNode>();
     this.order = new DoublyLinkedList();
     this.max = max;
@@ -20,7 +20,19 @@ class LRUCache {
   }
 
   set(key: string, value: string, ttl?: number, expiresAt?: number) {
-    if (this.size === this.max) {
+    const existing = this.cache.get(key);
+
+    if (existing) {
+      existing.setValue(value);
+
+      if (ttl !== undefined) {
+        existing.setExpiresAt(Date.now() + ttl * 1000);
+      }
+
+      return;
+    }
+
+    if (this.size >= this.max) {
       const expired = this.order.removeExpired();
 
       if (expired.length) {
@@ -31,11 +43,12 @@ class LRUCache {
     }
 
     // If the cache is still at its maximum capacity, delete the least used one
-    if (this.size === this.max) {
+    if (this.size >= this.max) {
       const leastUsed = this.order.removeTail();
 
       if (leastUsed) {
         this.cache.delete(leastUsed.getKey());
+        this.size--;
       }
     }
 
@@ -56,6 +69,7 @@ class LRUCache {
       if (node?.isExpired) {
         this.order.delete(node);
         this.cache.delete(key);
+        this.size--;
       }
 
       this.stats.misses++;
@@ -74,6 +88,7 @@ class LRUCache {
 
     this.cache.delete(key);
     this.order.delete(node);
+    this.size--;
 
     return true;
   }
@@ -93,14 +108,12 @@ class LRUCache {
     const uptime = Math.floor((Date.now() - this.startedAt) / 1000);
 
     return `
-      +--------+--------------+
-      | Metric |    Value     |
-      +--------+--------------+
-      | Items  |      ${this.cache.size}       |
-      | Hits   |      ${this.stats.hits}       |
-      | Misses |      ${this.stats.misses}       |
-      | Uptime |   ${formatUptime(uptime)}   |
-      +--------+--------------+
+    +--------+--------------+
+    Items: ${this.size}
+    Hits: ${this.stats.hits}
+    Misses: ${this.stats.misses}
+    Uptime: ${formatUptime(uptime)}
+    +--------+--------------+
     `;
   }
 }

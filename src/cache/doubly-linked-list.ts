@@ -1,5 +1,5 @@
 class ListNode {
-  private readonly value: string;
+  private value: string;
   private readonly key: string;
   public next: ListNode | null;
   public prev: ListNode | null;
@@ -11,6 +11,10 @@ class ListNode {
     this.next = null;
     this.prev = null;
     this.expiresAt = ttl ? Date.now() + ttl * 1000 : undefined;
+  }
+
+  public setValue(value: string) {
+    this.value = value;
   }
 
   public getValue() {
@@ -42,35 +46,45 @@ class DoublyLinkedList {
   add(key: string, value: string, ttl?: number) {
     const newNode = new ListNode(key, value, ttl);
 
-    if (!this.head) {
+    if (!this.head || !this.tail) {
+      // First node forms a single-element ring pointing at itself.
+      newNode.next = newNode;
+      newNode.prev = newNode;
       this.head = newNode;
-    } else {
-      newNode.prev = this.tail;
-      newNode.next = this.head;
-      this.tail!.next = newNode;
-      this.head.prev = newNode;
+      this.tail = newNode;
+      return newNode;
     }
 
-    this.tail = newNode;
+    // Insert at the head (MRU end), keeping the ring closed through the tail.
+    newNode.prev = this.tail;
+    newNode.next = this.head;
+    this.head.prev = newNode;
+    this.tail.next = newNode;
+    this.head = newNode;
+
     return newNode;
   }
 
   delete(node: ListNode) {
-    if (this.head === node) {
-      this.head = this.head.next;
+    if (node.next === node) {
+      // Sole node in the ring.
+      this.head = null;
+      this.tail = null;
+    } else {
+      if (this.head === node) {
+        this.head = node.next;
+      }
+
+      if (this.tail === node) {
+        this.tail = node.prev;
+      }
+
+      node.prev!.next = node.next;
+      node.next!.prev = node.prev;
     }
 
-    if (this.tail === node) {
-      this.tail = this.tail.prev;
-    }
-
-    if (node.prev) {
-      node.prev.next = node.next;
-    }
-
-    if (node.next) {
-      node.next.prev = node.prev;
-    }
+    node.prev = null;
+    node.next = null;
   }
 
   // Returns nodes in recency order (head = most recent, tail = least).
@@ -108,23 +122,32 @@ class DoublyLinkedList {
   }
 
   removeTail() {
-    let removedTail: ListNode | null = null;
+    if (!this.tail) return null;
 
-    if (this.tail) {
-      removedTail = this.tail;
-      this.tail = this.tail.prev;
-    } else {
-      removedTail = this.head;
+    const removedTail = this.tail;
+
+    if (this.tail === this.head) {
+      this.tail = null;
       this.head = null;
+    } else {
+      this.tail = this.tail.prev;
+      this.tail!.next = this.head;
+      this.head!.prev = this.tail;
     }
+
+    removedTail.prev = null;
+    removedTail.next = null;
 
     return removedTail;
   }
 
   moveToFront(node: ListNode) {
-    if (!this.head?.next) {
-      // If there's no head (impossible given that the function is called only after getting the node, but JIC), or there's only one element, we leave as-is
+    if (node === this.head || !this.head?.next) {
       return;
+    }
+
+    if (node === this.tail) {
+      this.tail = node.prev;
     }
 
     node.prev!.next = node.next;
