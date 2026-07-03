@@ -1,9 +1,12 @@
 import { DoublyLinkedList, type ListNode } from "./doubly-linked-list";
+import type { SnapshotEntry } from "../persistence";
+import { formatUptime } from "../helpers";
 
 class LRUCache {
+  private readonly max: number;
+  private readonly startedAt: number;
   private cache: Map<string, ListNode>;
   private order: DoublyLinkedList;
-  private readonly max: number;
   private size: number;
   private stats: { hits: number; misses: number };
 
@@ -13,9 +16,21 @@ class LRUCache {
     this.max = max;
     this.size = 0;
     this.stats = { hits: 0, misses: 0 };
+    this.startedAt = Date.now();
   }
 
-  set(key: string, value: string, ttl?: number) {
+  set(key: string, value: string, ttl?: number, expiresAt?: number) {
+    if (this.size === this.max) {
+      const expired = this.order.removeExpired();
+
+      if (expired.length) {
+        this.size -= expired.length;
+
+        expired.forEach((node) => this.cache.delete(node.getKey()));
+      }
+    }
+
+    // If the cache is still at its maximum capacity, delete the least used one
     if (this.size === this.max) {
       const leastUsed = this.order.removeTail();
 
@@ -24,21 +39,25 @@ class LRUCache {
       }
     }
 
-    const node = this.order.add(key, value);
+    const node = this.order.add(key, value, ttl);
+
+    if (expiresAt) {
+      node.setExpiresAt(expiresAt);
+    }
+
     this.cache.set(key, node);
     this.size++;
-
-    if (ttl !== undefined) {
-      setTimeout(() => {
-        this.delete(key);
-      }, ttl * 1000);
-    }
   }
 
   get(key: string): string | null {
     const node = this.cache.get(key);
 
-    if (!node) {
+    if (!node || node.isExpired) {
+      if (node?.isExpired) {
+        this.order.delete(node);
+        this.cache.delete(key);
+      }
+
       this.stats.misses++;
       return null;
     }
@@ -59,15 +78,29 @@ class LRUCache {
     return true;
   }
 
+  snapshot(): SnapshotEntry[] {
+    return this.order
+      .toArray()
+      .filter((node) => !node.isExpired)
+      .map((node) => ({
+        key: node.getKey(),
+        value: node.getValue(),
+        expiresAt: node.expiresAt,
+      }));
+  }
+
   getStats() {
+    const uptime = Math.floor((Date.now() - this.startedAt) / 1000);
+
     return `
-      +--------+-------+
-      | Metric | Value |
-      +--------+-------+
-      | Items  |   ${this.cache.size}   |
-      | Hits   |   ${this.stats.hits}   |
-      | Misses |   ${this.stats.misses}   |
-      +--------+-------+
+      +--------+--------------+
+      | Metric |    Value     |
+      +--------+--------------+
+      | Items  |      ${this.cache.size}       |
+      | Hits   |      ${this.stats.hits}       |
+      | Misses |      ${this.stats.misses}       |
+      | Uptime |   ${formatUptime(uptime)}   |
+      +--------+--------------+
     `;
   }
 }

@@ -3,12 +3,14 @@ class ListNode {
   private readonly key: string;
   public next: ListNode | null;
   public prev: ListNode | null;
+  public expiresAt?: number;
 
-  constructor(key: string, value: string) {
+  constructor(key: string, value: string, ttl?: number) {
     this.value = value;
     this.key = key;
     this.next = null;
     this.prev = null;
+    this.expiresAt = ttl ? Date.now() + ttl * 1000 : undefined;
   }
 
   public getValue() {
@@ -17,6 +19,14 @@ class ListNode {
 
   public getKey() {
     return this.key;
+  }
+
+  public get isExpired() {
+    return this.expiresAt !== undefined && this.expiresAt <= Date.now();
+  }
+
+  public setExpiresAt(expiresAt: number) {
+    this.expiresAt = expiresAt;
   }
 }
 
@@ -29,8 +39,8 @@ class DoublyLinkedList {
     this.tail = null;
   }
 
-  add(key: string, value: string) {
-    const newNode = new ListNode(key, value);
+  add(key: string, value: string, ttl?: number) {
+    const newNode = new ListNode(key, value, ttl);
 
     if (!this.head) {
       this.head = newNode;
@@ -61,6 +71,40 @@ class DoublyLinkedList {
     if (node.next) {
       node.next.prev = node.prev;
     }
+  }
+
+  // Returns nodes in recency order (head = most recent, tail = least).
+  // Read-only: it never mutates the list, so it's safe to call mid-flight.
+  toArray() {
+    if (!this.head) return [];
+
+    const nodes: ListNode[] = [];
+    let curr: ListNode | null = this.head;
+
+    do {
+      nodes.push(curr);
+      curr = curr?.next || null;
+    } while (curr && curr !== this.head);
+
+    return nodes;
+  }
+
+  removeExpired() {
+    if (!this.head) return [];
+
+    let curr: ListNode | null = this.head;
+    const expired: ListNode[] = [];
+
+    do {
+      if (curr?.isExpired) {
+        expired.push(curr);
+      }
+
+      curr = curr?.next || null;
+    } while (curr && curr !== this.head);
+
+    expired.forEach((node) => this.delete(node));
+    return expired;
   }
 
   removeTail() {

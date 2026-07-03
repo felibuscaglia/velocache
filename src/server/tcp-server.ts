@@ -11,8 +11,8 @@ export function createTcpServer(cache: LRUCache, port = 8080): net.Server {
     socket.setEncoding("utf-8");
     socket.write(`Welcome to the VeloCache server\r\n${PROMPT}`);
 
-    socket.on("data", (data: string) => {
-      const response = handleCommand(cache, data.trim());
+    socket.on("data", async (data: string) => {
+      const response = await handleCommand(cache, data.trim());
       socket.write(`${response}\r\n${PROMPT}`);
     });
 

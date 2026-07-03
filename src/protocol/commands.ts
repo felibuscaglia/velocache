@@ -1,7 +1,11 @@
 import { LRUCache } from "../cache";
 import { parseSet } from "../helpers";
+import { saveSnapshot } from "../persistence";
 
-export function handleCommand(cache: LRUCache, input: string): string {
+export async function handleCommand(
+  cache: LRUCache,
+  input: string
+): Promise<string> {
   const [command, key, ...rest] = input.split(" ");
   const value = rest.join(" ");
 
@@ -22,6 +26,17 @@ export function handleCommand(cache: LRUCache, input: string): string {
     case "DELETE":
       if (!key) return "ERROR missing key";
       return cache.delete(key) ? "1" : "0";
+
+    case "SAVE": {
+      const entries = cache.snapshot();
+
+      try {
+        const savedTo = await saveSnapshot(entries);
+        return `OK ${savedTo}`;
+      } catch (err) {
+        return `ERROR save failed: ${(err as Error).message}`;
+      }
+    }
 
     case "STATS":
       return cache.getStats();
